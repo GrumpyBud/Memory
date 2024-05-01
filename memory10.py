@@ -2,13 +2,13 @@ from gtts import gTTS
 import os
 import pygame
 import json
-import speech_recognition as sr
 from openai import OpenAI
+import speech_recognition as sr
+import io
+
 pygame.init()
-pygame.mixer.init()
+pygame.mixer.init
 
-
-recognizer = sr.Recognizer()
 client = OpenAI()
 
 class UserProfileManager:
@@ -16,15 +16,35 @@ class UserProfileManager:
         self.file_path = file_path
         self.profiles = self.load_profiles()
         OpenAI.api_key = os.getenv("OPENAI_API_KEY")
+        self.recognizer = sr.Recognizer()
         
     def text_to_speech(self, text):
         tts = gTTS(text=text, lang='en')
+        with io.BytesIO() as f:
+            tts.write_to_fp(f)
+            f.seek(0)
+            pygame.mixer.music.load(f)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                continue
+        
+    def speech_to_text(self):
+        with sr.Microphone() as source:
+            print("Speak now...")
+            audio = self.recognizer.listen(source)
 
-        output_file_path = "output.wav"
-        tts.save(output_file_path)  # Save as WAV
-        print(f"Text-to-speech audio saved as '{output_file_path}'.")
-        self.outputsound = pygame.mixer.Sound("output.wav")
-        pygame.mixer.Sound.play(self.outputsound)
+        try:
+            text = self.recognizer.recognize_whisper_api(audio)
+            print(f"You said: {text}")
+            return text
+        except sr.UnknownValueError:
+            print("Sorry, I could not understand your speech.")
+            self.text_to_speech("Sorry, I could not understand your speech.")
+            return None
+        except sr.RequestError as e:
+            print(f"Could not request results from the speech recognition service; {e}")
+            self.text_to_speech(f"Could not request results from the speech recognition service; {e}")
+            return None
 
     def play_wav(self, output):
         pygame.mixer.music.load(output)
@@ -110,78 +130,61 @@ class UserProfileManager:
 
     def chat_with_gpt(self):
         while True:
-            with sr.Microphone() as source:
-                print("Listening...")
-                audio = recognizer.listen(source)
-            try:
-                user_input = recognizer.recognize_google(audio)
-                print("You:", user_input)
-            except sr.UnknownValueError:
-                print("Google Speech Recognition could not understand audio")
-                continue
-            except sr.RequestError as e:
-                print("Could not request results from Google Speech Recognition service; {0}".format(e))
-                continue
+            user_input = input("You: ")
             if user_input.lower() == "quit":
                 break
 
             response = self.chat(user_input)
             print("ChatGPT: ", response)
     
-    def get_voice_input(self):
-        with sr.Microphone() as source:
-            print("Listening...")
-            self.text_to_speech("Listening...")
-            audio = recognizer.listen(source)
-        try:
-            user_input = recognizer.recognize_sphinx(audio)
-            print("You said:", user_input)
-            self.text_to_speech(f"You said: {user_input}")
-            return user_input
-        except sr.UnknownValueError:
-            print("Speech Recognition could not understand audio")
-            self.text_to_speech("Speech Recognition could not understand audio")
-        except sr.RequestError as e:
-            print("Could not request results from Speech Recognition service; {0}".format(e))
-            self.text_to_speech(f"Could not request results from Speech Recognition service; {e}")
-    
-
-    
     
 
 # Example usage
 file_path = "user_profiles.json"
 user_manager = UserProfileManager(file_path)
-recognizer = sr.Recognizer()
 first_time = True
 activate = False
 
 while True:
     print("\n1. Create Profile\n2. Activate Profile\n3. Edit Profile\n4. View Profiles\n5. Activate Chat\n6. Exit")
     if first_time:
-        UserProfileManager.text_to_speech(UserProfileManager, f"1- create profile. 2- activate profile. 3- edit profile. 4- view profiles. 5- activate chat. 6- exit. Enter your choice:")
+        user_manager.text_to_speech("1- create profile. 2- activate profile. 3- edit profile. 4- view profiles. 5- activate chat. 6- exit. Speak your choice:")
         first_time = False
-    choice = user_manager.get_voice_input()
-    
-    if choice == '1':
-        name = user_manager.get_voice_input()
-        UserProfileManager.text_to_speech(UserProfileManager, f"Enter name:")
-        age = user_manager.get_voice_input()
-        UserProfileManager.text_to_speech(UserProfileManager, f"Enter Age:")
-        interests = user_manager.get_voice_input()
-        UserProfileManager.text_to_speech(UserProfileManager, f"Enter interests:")
+    choice = user_manager.speech_to_text()
+
+    if choice is None:
+        print("none were picked")
+        continue
+
+    if choice.lower() == "1" or "one" or "create":
+        print("speak your name")
+        user_manager.text_to_speech("Speak your name:")
+        name = user_manager.speech_to_text()
+        if name is None:
+            continue
+        print("speak your age")
+        user_manager.text_to_speech("Speak your age:")
+        age = user_manager.speech_to_text()
+        if age is None:
+            continue
+        print("speak your interests")
+        user_manager.text_to_speech("Speak your interests:")
+        interests = user_manager.speech_to_text()
+        if interests is None:
+            continue
         user_manager.create_profile(name, age, interests)
+        print(name, age, interests)
     elif choice == '2':
         activated = True
-        name = user_manager.get_voice_input()
+        name = input("Enter name to activate: ")
         UserProfileManager.text_to_speech(UserProfileManager, f"Enter name to activate:")
         user_manager.activate_profile(name)
     elif choice == '3':
-        name = user_manager.get_voice_input()
+        name = input("Enter name: ")
         UserProfileManager.text_to_speech(UserProfileManager, f"Enter name:")
-        field = user_manager.get_voice_input()
+        field = input("Enter field to edit (age or interests): ")
         UserProfileManager.text_to_speech(UserProfileManager, f"Enter field to edit, (age or interests)")
-        new_value = user_manager.get_voice_input()
+        new_value = input(f"Enter new value for {field}: ")
         UserProfileManager.text_to_speech(UserProfileManager, f"Enter new value for {field}:")
         user_manager.edit_profile(name, field, new_value)
     elif choice == '4':
@@ -189,7 +192,7 @@ while True:
     elif choice == '5':
         if not activate:
             activate = True
-            name = user_manager.get_voice_input()
+            name = input("Enter name to activate: ")
             UserProfileManager.text_to_speech(UserProfileManager, f"Enter name to activate:")
             user_manager.activate_profile(name)    
         else:
