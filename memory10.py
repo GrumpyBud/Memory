@@ -16,6 +16,7 @@ from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.lex_rank import LexRankSummarizer
 from sumy.utils import get_stop_words
+from text2digits import text2digits
 
 pygame.init()
 pygame.mixer.init()
@@ -36,7 +37,8 @@ class UserProfileManager:
         self.profiles = self.load_profiles()
         OpenAI.api_key = os.getenv("OPENAI_API_KEY")
         self.recognizer = sr.Recognizer()
-        self.skip_tts = False
+        self.skip_current_tts = False  # Renamed from skip_tts
+        self.t2d = text2digits.Text2Digits()
 
         # Set up keyboard listener
         self.listener = keyboard.Listener(on_press=self.on_press)
@@ -44,13 +46,13 @@ class UserProfileManager:
         
     def on_press(self, key):
         if key == keyboard.KeyCode.from_char('s'):
-            self.skip_tts = True
-            print("Skipping TTS output...")
+            self.skip_current_tts = True  # Updated to use skip_current_tts
+            print("Skipping current TTS output...")
         else:
-            self.skip_tts = False
+            self.skip_current_tts = False  # Updated to use skip_current_tts
 
     def text_to_speech(self, text):
-        if not self.skip_tts:
+        if not self.skip_current_tts:
             # Convert numbers to words using num2words
             text = re.sub(r'\b(\d+)\b', lambda m: num2words(int(m.group(0))), text)
 
@@ -73,9 +75,9 @@ class UserProfileManager:
                     try:
                         pygame.mixer.music.play()
                         while pygame.mixer.music.get_busy():
-                            if self.skip_tts:
+                            if self.skip_current_tts:
                                 pygame.mixer.music.stop()
-                                print("TTS output skipped.")
+                                print("Current TTS output skipped.")
                                 break
                     except pygame.error as e:
                         if "unsupported audio format" in str(e):
@@ -89,21 +91,22 @@ class UserProfileManager:
 
                 # Print the TTS output while the TTS is playing
                 for char in text:
-                    if self.skip_tts:
+                    if self.skip_current_tts:
                         break
                     print(char, end='', flush=True)
                     time.sleep(0.1)  # Adjust the sleep time to control the speed of printing
 
                 # Wait for the TTS thread to finish
                 tts_thread.join()
+                self.skip_current_tts = False
 
     def speech_to_text(self):
         with sr.Microphone() as source:
             audio = self.recognizer.listen(source)
 
         try:
-            text = self.recognizer.recognize_whisper_api(audio)
-            text = re.sub(r'[^a-z\s]', '', text.lower())  # Remove punctuation and special characters
+            text = self.recognizer.recognize_google(audio)
+            text = re.sub(r'[^a-zA-Z0-9\s]', '', text.lower())  # Remove punctuation and special characters
             text = re.sub(r'\s+', ' ', text).strip()  # Remove extra whitespace
             print(f"Hmm, I heard you say: {text}")
             return text
@@ -139,38 +142,25 @@ class UserProfileManager:
         with open(self.file_path, 'w') as file:
             json.dump(self.profiles, file, indent=2)
     
-    def create_profile(self, name, age_input, interests):
+    def create_profile(self, name, age, interests):
+        # Convert number words to digits in the age
+        age = self.t2d.convert(age)
+
+        # Remove any non-digit characters from the age``
+        age = ''.join(char for char in age if char.isdigit())
+
         if name not in self.profiles:
-            # Process name
-            name = re.sub(r'[^a-zA-Z\s]', '', name)  # Remove non-alphabetic characters
-            name = name.strip()  # Remove leading and trailing whitespace
-
-            # Convert words representing numbers into digits
-            age_input = self.words_to_number(age_input)
-
-            # Extract age from the input
-            age_match = re.search(r'\b(\d+)\b', age_input)
-            if age_match:
-                age = int(age_match.group(1))
-            else:
-                print("Invalid age format. Please enter a valid number.")
-                return
-
-            # Process interests
-            interests_summary = self.summarize(interests, word_count=15)
-
-            # Continue with the rest of the function
-            self.profiles[name] = {'age': age, 'interests': interests_summary}
-            print(f"{name}'s profile has been created!")
+            self.profiles[name] = {'age': age, 'interests': interests}
+            print(f"Profile created for {name}")
             self.save_profiles()
-            self.name = name
 
-            # Perform TTS
-            self.text_to_speech(f"{name}'s profile has been created! Their interests are {interests_summary}.")
+            # Perform TTS and save as WAV
+            self.text_to_speech(f"Great, I've created a new profile for {name}. "
+                                "Is there anything else you'd like to do?")
         else:
-            print(f"{name}'s profile already exists. Please choose a different name.")
-            self.text_to_speech(f"{name}'s profile already exists. Please choose a different name.")
-
+            print(f"Sorry, a profile with the name '{name}' already exists. "
+                "Would you like to try again with a different name?")
+    
     def words_to_number(self, text):
         word_to_number = {
             'zero': '0',
@@ -290,10 +280,11 @@ while True:
     choice = choice.lower()
 
     if "1" in choice or "one" in choice or "create" in choice or "number one" in choice:
+        print("Okay, I'll create a new profile. Please tell me the name, age, and interests for the profile.")
         user_manager.text_to_speech("What is the name of the new profile?")
         name = user_manager.speech_to_text()
         if name is None:
-            continue
+            break
         user_manager.text_to_speech("What is the age of the new profile?")
         age = user_manager.speech_to_text()
         if age is None:
