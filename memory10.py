@@ -8,9 +8,7 @@ import io
 import re
 import time
 import threading
-import inflect
 from pynput import keyboard
-import string
 from num2words import num2words
 from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
@@ -57,7 +55,7 @@ class UserProfileManager:
             text = re.sub(r'\b(\d+)\b', lambda m: num2words(int(m.group(0))), text)
 
             tts = gTTS(text=text, lang='en')
-            output_file_path = "output.wav"  # Set the output file path
+            output_file_path = "output.wav"
             audio_data = io.BytesIO()
             tts.write_to_fp(audio_data)
             audio_data.seek(0)
@@ -94,7 +92,7 @@ class UserProfileManager:
                     if self.skip_current_tts:
                         break
                     print(char, end='', flush=True)
-                    time.sleep(0.1)  # Adjust the sleep time to control the speed of printing
+                    time.sleep(0.075)  # Adjust the sleep time to control the speed of printing (lower value = faster)
 
                 # Wait for the TTS thread to finish
                 tts_thread.join()
@@ -102,21 +100,20 @@ class UserProfileManager:
 
     def speech_to_text(self):
         with sr.Microphone() as source:
+            print("Speak now...")
             audio = self.recognizer.listen(source)
 
         try:
-            text = self.recognizer.recognize_google(audio)
-            text = re.sub(r'[^a-zA-Z0-9\s]', '', text.lower())  # Remove punctuation and special characters
-            text = re.sub(r'\s+', ' ', text).strip()  # Remove extra whitespace
-            print(f"Hmm, I heard you say: {text}")
+            text = self.recognizer.recognize_whisper_api(audio)
+            print(f"You said: {text}")
             return text
         except sr.UnknownValueError:
-            print("I'm sorry, I didn't catch that. Can you repeat?")
-            self.text_to_speech("Sorry, I couldn't understand you.")
+            print("Sorry, I could not understand your speech.")
+            self.text_to_speech("Sorry, I could not understand your speech.")
             return None
         except sr.RequestError as e:
-            print(f"Oops, I couldn't connect to the speech recognition service; {e}")
-            self.text_to_speech(f"Sorry, I couldn't connect to the speech recognition service; {e}")
+            print(f"Could not request results from the speech recognition service; {e}")
+            self.text_to_speech(f"Could not request results from the speech recognition service; {e}")
             return None
         
     def play_wav(self, output):
@@ -136,6 +133,9 @@ class UserProfileManager:
             with open(self.file_path, 'r') as file:
                 return json.load(file)
         except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            print("Error: Invalid JSON file. Creating a new empty dictionary.")
             return {}
 
     def save_profiles(self):
@@ -203,21 +203,21 @@ class UserProfileManager:
 
 
     def edit_profile(self, name, field, new_value):
+        valid_fields = ['age', 'interests', 'name']
         for profile_name in self.profiles:
             if profile_name.lower() == name.lower():
-                if field in self.profiles[profile_name]:
-                    self.profiles[profile_name][field] = new_value
+                if field.lower() in valid_fields:
+                    if field.lower() == 'name':
+                        self.profiles[new_value.capitalize()] = self.profiles.pop(profile_name)
+                    else:
+                        self.profiles[profile_name][field] = new_value
                     print(f"{profile_name}'s profile has been updated!")
                     self.save_profiles()
                     self.text_to_speech(f"{profile_name}'s profile has been updated!")
-
-                    # Perform TTS and save as WAV
-                    self.text_to_speech(f"{profile_name}'s profile has been updated!")
-
                     return True
                 else:
-                    print(f"{field} is not a valid field in {profile_name}'s profile.")
-                    self.text_to_speech(f"{field} is not a valid field in {profile_name}'s profile.")
+                    print(f"{field} is not a valid field in {profile_name}'s profile. Valid fields are 'age', 'interests', and 'name'.")
+                    self.text_to_speech(f"{field} is not a valid field in {profile_name}'s profile. Valid fields are 'age', 'interests', and 'name'.")
                     return False
         print(f"{name}'s profile does not exist. Please enter a valid Name.")
         self.text_to_speech(f"{name}'s profile does not exist. Please enter a valid Name.")
@@ -228,8 +228,6 @@ class UserProfileManager:
         for profile_name in self.profiles:
             profile = self.profiles[profile_name]
             print(f"Name: {profile_name}, Age: {profile['age']}, Interests: {profile['interests']}")
-            self.text_to_speech(f"Name: {profile_name}, Age: {profile['age']}, Interests: {profile['interests']}")
-
     def chat(self, user_input):
         conversation_history = [{"role": "system", "content": f"You are an assistant talking to {self.name} who is {self.age} years old. They enjoy {self.interests}."}]
         # Append user input to conversation history
@@ -255,6 +253,7 @@ class UserProfileManager:
 
             response = self.chat(user_input)
             print("ChatGPT: ", response)
+            self.text_to_speech(response)
     
     
 
@@ -326,6 +325,3 @@ while True:
         break
     else:
         user_manager.text_to_speech("Invalid choice. Please enter a valid option.")
-
-
-
